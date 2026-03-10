@@ -1,0 +1,496 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="UTF-8">
+<title>Smart Health Monitoring Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<link rel="stylesheet" href="style.css">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+</head>
+
+<body>
+
+<header>
+Smart Health Monitoring System
+</header>
+
+<div class="container">
+
+<div class="control-panel">
+
+<button id="connectBleButton" class="btn connect">
+Connect Device
+</button>
+
+<button id="disconnectBleButton" class="btn disconnect">
+Disconnect
+</button>
+
+<p class="ble-status">
+BLE Status :
+<span id="bleState" class="disconnected">Disconnected</span>
+</p>
+
+</div>
+
+
+<div class="grid">
+
+<div class="card">
+
+<h3>Temperature</h3>
+
+<div class="value">
+<span id="tempValue">--</span>
+</div>
+
+<div class="unit">°C</div>
+
+<p id="tempStatus" class="status">
+Waiting data
+</p>
+
+</div>
+
+
+<div class="card">
+
+<h3>Heart Rate</h3>
+
+<div class="value">
+<span id="hrValue">--</span>
+</div>
+
+<div class="unit">bpm</div>
+
+<p id="hrStatus" class="status">
+Waiting data
+</p>
+
+</div>
+
+
+<div class="card">
+
+<h3>Blood Oxygen (SpO₂)</h3>
+
+<div class="value">
+<span id="spo2Value">--</span>
+</div>
+
+<div class="unit">%</div>
+
+<p id="spo2Status" class="status">
+Waiting data
+</p>
+
+</div>
+
+
+<div class="card">
+
+<h3>Device Control</h3>
+
+<button id="onButton" class="btn ledOn">LED ON</button>
+<button id="offButton" class="btn ledOff">LED OFF</button>
+
+<p class="status">
+Last command :
+<span id="valueSent">--</span>
+</p>
+
+</div>
+
+</div>
+
+
+<!-- GRAPH SECTION -->
+
+<div class="graph-section">
+
+<h2>Health Trends</h2>
+
+<button onclick="clearGraph()" class="btn disconnect">
+Clear Graph
+</button>
+
+<div class="graph-grid">
+
+<div class="graph-card">
+<h3>Heart Rate</h3>
+<canvas id="hrChart"></canvas>
+</div>
+
+<div class="graph-card">
+<h3>SpO₂</h3>
+<canvas id="spo2Chart"></canvas>
+</div>
+
+</div>
+
+</div>
+
+
+<!-- DATA LOG -->
+
+<div class="log-section">
+
+<h2>Health Data Log</h2>
+
+<div class="logButtons">
+
+<button onclick="downloadCSV()" class="btn connect">
+Download CSV
+</button>
+
+<button onclick="clearLog()" class="btn disconnect">
+Clear Log
+</button>
+
+</div>
+
+<table id="logTable">
+
+<thead>
+
+<tr>
+<th>Time</th>
+<th>Temp (°C)</th>
+<th>HR (bpm)</th>
+<th>SpO₂ (%)</th>
+</tr>
+
+</thead>
+
+<tbody></tbody>
+
+</table>
+
+</div>
+
+</div>
+
+
+<script>
+
+/* GOOGLE SHEETS URL */
+
+const sheetURL="https://script.google.com/macros/s/AKfycbxZHShiS29XTCxVHc62xzcj_0z17pvW61wdEUVm7ZLGskXlzPxU27xGDH1-8beXgtxI0Q/exec"
+
+
+/* BLE UUID */
+
+const deviceName="6631381444"
+
+const serviceUUID="19b10000-e8f2-537e-4f6c-d104768a1214"
+const tempUUID="19b10001-e8f2-537e-4f6c-d104768a1214"
+const ledUUID="19b10002-e8f2-537e-4f6c-d104768a1214"
+const hrUUID="19b10003-e8f2-537e-4f6c-d104768a1214"
+const spo2UUID="19b10004-e8f2-537e-4f6c-d104768a1214"
+
+let bleDevice=null
+let bleService=null
+
+let tempData="--"
+let hrData="--"
+let spo2Data="--"
+
+document.getElementById("connectBleButton").onclick=connectBLE
+document.getElementById("disconnectBleButton").onclick=disconnectBLE
+document.getElementById("onButton").onclick=()=>writeLED(1)
+document.getElementById("offButton").onclick=()=>writeLED(0)
+
+
+
+/* CONNECT BLE */
+
+function connectBLE(){
+
+navigator.bluetooth.requestDevice({
+filters:[{name:deviceName}],
+optionalServices:[serviceUUID]
+})
+
+.then(device=>{
+bleDevice=device
+document.getElementById("bleState").innerHTML="Connected"
+document.getElementById("bleState").className="connected"
+return device.gatt.connect()
+})
+
+.then(server=>server.getPrimaryService(serviceUUID))
+
+.then(service=>{
+bleService=service
+return service.getCharacteristic(tempUUID)
+})
+
+.then(char=>{
+
+char.startNotifications()
+
+char.addEventListener("characteristicvaluechanged",e=>{
+
+let v=parseFloat(new TextDecoder().decode(e.target.value))
+
+tempData=v.toFixed(2)
+
+document.getElementById("tempValue").innerHTML=tempData
+
+if(v>37.5){
+tempStatus.innerHTML="Fever"
+tempStatus.style.color="red"
+}
+else if(v<35){
+tempStatus.innerHTML="Low"
+tempStatus.style.color="orange"
+}
+else{
+tempStatus.innerHTML="Normal"
+tempStatus.style.color="green"
+}
+
+})
+
+})
+
+.then(()=>bleService.getCharacteristic(hrUUID))
+
+.then(char=>{
+
+char.startNotifications()
+
+char.addEventListener("characteristicvaluechanged",e=>{
+
+let v=parseFloat(new TextDecoder().decode(e.target.value))
+
+hrData=v.toFixed(1)
+
+document.getElementById("hrValue").innerHTML=hrData
+
+if(v>100){
+hrStatus.innerHTML="High"
+hrStatus.style.color="red"
+}
+else if(v<60){
+hrStatus.innerHTML="Low"
+hrStatus.style.color="orange"
+}
+else{
+hrStatus.innerHTML="Normal"
+hrStatus.style.color="green"
+}
+
+})
+
+})
+
+.then(()=>bleService.getCharacteristic(spo2UUID))
+
+.then(char=>{
+
+char.startNotifications()
+
+char.addEventListener("characteristicvaluechanged",e=>{
+
+let v=parseFloat(new TextDecoder().decode(e.target.value))
+
+spo2Data=v.toFixed(1)
+
+document.getElementById("spo2Value").innerHTML=spo2Data
+
+if(v<95){
+spo2Status.innerHTML="Low"
+spo2Status.style.color="red"
+}
+else{
+spo2Status.innerHTML="Normal"
+spo2Status.style.color="green"
+}
+
+})
+
+})
+
+}
+
+
+
+/* LED */
+
+function writeLED(val){
+
+if(!bleService) return
+
+bleService.getCharacteristic(ledUUID)
+
+.then(c=>{
+c.writeValue(new Uint8Array([val]))
+valueSent.innerHTML=val?"ON":"OFF"
+})
+
+}
+
+
+
+/* DISCONNECT */
+
+function disconnectBLE(){
+
+if(bleDevice && bleDevice.gatt.connected){
+
+bleDevice.gatt.disconnect()
+
+bleState.innerHTML="Disconnected"
+bleState.className="disconnected"
+
+}
+
+}
+
+
+
+/* CHART */
+
+let labels=[]
+let hrDataSet=[]
+let spo2DataSet=[]
+
+const hrChart=new Chart(document.getElementById("hrChart"),{
+type:"line",
+data:{labels:labels,datasets:[{label:"Heart Rate",data:hrDataSet,borderColor:"#e74c3c",tension:0.3}]}
+})
+
+const spo2Chart=new Chart(document.getElementById("spo2Chart"),{
+type:"line",
+data:{labels:labels,datasets:[{label:"SpO2",data:spo2DataSet,borderColor:"#3498db",tension:0.3}]}
+})
+
+
+
+/* ADD LOG */
+
+function addLog(){
+
+if(tempData==="--") return
+
+let time=new Date().toLocaleTimeString()
+
+let table=document.querySelector("#logTable tbody")
+
+let row=table.insertRow()
+
+row.insertCell(0).innerHTML=time
+row.insertCell(1).innerHTML=tempData
+row.insertCell(2).innerHTML=hrData
+row.insertCell(3).innerHTML=spo2Data
+
+labels.push(time)
+hrDataSet.push(hrData)
+spo2DataSet.push(spo2Data)
+
+if(labels.length>20){
+
+labels.shift()
+hrDataSet.shift()
+spo2DataSet.shift()
+
+}
+
+hrChart.update()
+spo2Chart.update()
+
+sendToSheets()
+
+}
+
+setInterval(addLog,5000)
+
+
+
+/* CLEAR GRAPH */
+
+function clearGraph(){
+
+labels=[]
+hrDataSet=[]
+spo2DataSet=[]
+
+hrChart.data.labels=labels
+hrChart.data.datasets[0].data=hrDataSet
+
+spo2Chart.data.labels=labels
+spo2Chart.data.datasets[0].data=spo2DataSet
+
+hrChart.update()
+spo2Chart.update()
+
+}
+
+
+
+function sendToSheets(){
+
+fetch(sheetURL,{
+method:"POST",
+body:JSON.stringify({
+time:new Date().toLocaleString(),
+temp:tempData,
+hr:hrData,
+spo2:spo2Data
+})
+})
+
+}
+
+
+
+/* CSV */
+
+function downloadCSV(){
+
+let table=document.getElementById("logTable")
+
+let csv=[]
+
+for(let i=0;i<table.rows.length;i++){
+
+let row=[],cols=table.rows[i].cells
+
+for(let j=0;j<cols.length;j++)
+row.push(cols[j].innerText)
+
+csv.push(row.join(","))
+
+}
+
+let file=new Blob([csv.join("\n")],{type:"text/csv"})
+
+let link=document.createElement("a")
+
+link.href=URL.createObjectURL(file)
+
+link.download="health_data.csv"
+
+link.click()
+
+}
+
+
+
+/* CLEAR LOG */
+
+function clearLog(){
+
+document.querySelector("#logTable tbody").innerHTML=""
+
+}
+
+</script>
+
+</body>
+</html>
